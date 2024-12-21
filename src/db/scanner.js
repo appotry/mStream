@@ -4,6 +4,8 @@ const path = require('path');
 const crypto = require('crypto');
 const mime = require('mime-types');
 const Joi = require('joi');
+const Jimp = require('jimp');
+
 const axios = require('axios').create({
   httpsAgent: new (require('https')).Agent({  
     rejectUnauthorized: false
@@ -28,6 +30,7 @@ const schema = Joi.object({
   albumArtDirectory: Joi.string().required(),
   scanId: Joi.string().required(),
   isHttps: Joi.boolean().required(),
+  compressImage: Joi.boolean().required(),
   supportedFiles: Joi.object().pattern(
     Joi.string(), Joi.boolean()
   ).required()
@@ -58,6 +61,8 @@ async function insertEntries(song) {
     "sID": loadJson.scanId,
     "replaygainTrackDb": song.replaygain_track_gain ? song.replaygain_track_gain.dB : null
   };
+
+  if (song.genre) { data.genre = song.genre };
 
   await axios({
     method: 'POST',
@@ -166,21 +171,31 @@ async function parseFile(thisSong, modified) {
 
 function calculateHash(filepath) {
   return new Promise((resolve, reject) => {
-    const hash = crypto.createHash('md5').setEncoding('hex');
-    const fileStream = fs.createReadStream(filepath);
+    try {
+      const hash = crypto.createHash('md5').setEncoding('hex');
+      const fileStream = fs.createReadStream(filepath);
 
-    fileStream.on('end', () => {
-      hash.end();
-      fileStream.close();
-      resolve(hash.read());
-    });
-
-    fileStream.pipe(hash);
+      fileStream.on('error', (err) => {
+        reject(err);
+      });
+  
+      fileStream.on('end', () => {
+        hash.end();
+        fileStream.close();
+        resolve(hash.read());
+      });
+  
+      fileStream.pipe(hash);
+    }catch(err) {
+      reject(err);
+    }
   });
 }
 
 async function getAlbumArt(songInfo) {
   if (loadJson.skipImg === true) { return; }
+
+  let originalFileBuffer;
 
   // picture is stored in song metadata
   if (songInfo.picture && songInfo.picture[0]) {
@@ -191,10 +206,23 @@ async function getAlbumArt(songInfo) {
     if (!fs.existsSync(path.join(loadJson.albumArtDirectory, songInfo.aaFile))) {
       // Save file sync
       fs.writeFileSync(path.join(loadJson.albumArtDirectory, songInfo.aaFile), songInfo.picture[0].data);
+      originalFileBuffer = songInfo.picture[0].data;
     }
   } else {
-    await checkDirectoryForAlbumArt(songInfo);
+    originalFileBuffer = await checkDirectoryForAlbumArt(songInfo);
   }
+
+  if (originalFileBuffer) {
+    await compressAlbumArt(originalFileBuffer, songInfo.aaFile);
+  }
+}
+
+async function compressAlbumArt(buff, imgName) {
+  if (loadJson.compressImage === false) { return; }
+
+  const img = await Jimp.read(buff);
+  await img.scaleToFit(256, 256).write(path.join(loadJson.albumArtDirectory, 'zl-' + imgName));
+  await img.scaleToFit(92, 92).write(path.join(loadJson.albumArtDirectory, 'zs-' + imgName));
 }
 
 const mapOfDirectoryAlbumArt = {};
@@ -242,6 +270,7 @@ async function checkDirectoryForAlbumArt(songInfo) {
 
   let imageBuffer;
   let picFormat;
+  let newFileFlag = false;
 
   // Search for a named file
   for (var i = 0; i < imageArray.length; i++) {
@@ -265,9 +294,12 @@ async function checkDirectoryForAlbumArt(songInfo) {
   if (!fs.existsSync(path.join(loadJson.albumArtDirectory, songInfo.aaFile))) {
     // Save file sync
     fs.writeFileSync(path.join(loadJson.albumArtDirectory, songInfo.aaFile), imageBuffer);
+    newFileFlag = true;
   }
 
   mapOfDirectoryAlbumArt[directory] = songInfo.aaFile;
+
+  if (newFileFlag === true) { return imageBuffer; }
 }
 
 function getFileType(filename) {

@@ -872,7 +872,7 @@ function getRatedSongs(el) {
       });
 
       files += createMusicFileHtml(value.filepath,
-        value.metadata.title ? value.metadata.title : value.filepath, 
+        value.metadata.title ? value.metadata.title : value.filepath.split('/').pop(), 
         value.metadata['album-art'] ? `data-original="album-art/${value.metadata['album-art']}?token=${MSTREAMAPI.currentServer.token}"` : `src="assets/img/default.png"`, 
         rating,
         value.metadata.artist ? `<span style="font-size:15px;">${value.metadata.artist}</span>` : undefined);
@@ -1385,13 +1385,6 @@ function openNewPlaylistModal() {
 
 function openPlaybackModal() {
   myModal.open('#speedModal');
-}
-
-function logout(){
-  localStorage.removeItem('token');
-  Cookies.remove('x-access-token');
-  MSTREAMAPI.updateCurrentServer("", "", "");
-  window.location.href = 'login';
 }
 
 // Modals

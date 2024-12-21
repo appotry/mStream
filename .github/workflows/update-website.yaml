@@ -10,21 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: get node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '14'
-      - name: checkout 1
-        uses: actions/checkout@v2
+          node-version: '20'
+      - name: checkout mstream.io source code
+        uses: actions/checkout@v4
         with:
           path: website
           repository: IrosTheBeggar/mstream-website
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-      - name: checkout 2
-        uses: actions/checkout@v2
+          token: ${{ secrets.github_token }}
+          ref: master
+      - name: checkout mStream app code
+        uses: actions/checkout@v4
         with:
           path: mstream
           repository: IrosTheBeggar/mStream
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          token: ${{ secrets.github_token }}
+          ref: master
       - run: ls
       - run: |
           cd website

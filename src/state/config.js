@@ -17,7 +17,9 @@ const scanOptions = Joi.object({
   saveInterval: Joi.number().default(250),
   pause: Joi.number().min(0).default(0),
   bootScanDelay: Joi.number().default(3),
-  maxConcurrentTasks: Joi.number().integer().min(1).default(1)
+  maxConcurrentTasks: Joi.number().integer().min(1).default(1),
+  compressImage: Joi.boolean().default(true),
+  newScan: Joi.boolean().default(false)
 });
 
 const dbOptions = Joi.object({
@@ -25,7 +27,7 @@ const dbOptions = Joi.object({
 });
 
 const transcodeOptions = Joi.object({
-  algorithm: Joi.string().valid(...getTransAlgos()).default('buffer'),
+  algorithm: Joi.string().valid(...getTransAlgos()).default('stream'),
   enabled: Joi.boolean().default(false),
   ffmpegDirectory: Joi.string().default(path.join(__dirname, '../../bin/ffmpeg')),
   defaultCodec: Joi.string().valid(...getTransCodecs()).default('opus'),
@@ -53,7 +55,7 @@ const federationOptions = Joi.object({
 });
 
 const schema = Joi.object({
-  address: Joi.string().ip({ cidr: 'forbidden' }).default('0.0.0.0'),
+  address: Joi.string().ip({ cidr: 'forbidden' }).default('::'),
   port: Joi.number().default(3000),
   supportedAudioFiles: Joi.object().pattern(
     Joi.string(), Joi.boolean()
@@ -72,12 +74,13 @@ const schema = Joi.object({
   rpn: rpnOptions.default(rpnOptions.validate({}).value),
   transcode: transcodeOptions.default(transcodeOptions.validate({}).value),
   secret: Joi.string().optional(),
+  maxRequestSize: Joi.string().pattern(/[0-9]+(KB|MB)/i).default('1MB'),
   db: dbOptions.default(dbOptions.validate({}).value),
   folders: Joi.object().pattern(
     Joi.string(),
     Joi.object({
       root: Joi.string().required(),
-      type: Joi.string().valid('music', 'audiobook').default('music'),
+      type: Joi.string().valid('music', 'audio-books').default('music'),
     })
   ).default({}),
   users: Joi.object().pattern(

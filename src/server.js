@@ -1,6 +1,7 @@
 const winston = require('winston');
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const Joi = require('joi');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
@@ -63,7 +64,7 @@ exports.serveIt = async configFile => {
 
   // Magic Middleware Things
   mstream.use(cookieParser());
-  mstream.use(express.json());
+  mstream.use(express.json({ limit: config.program.maxRequestSize }));
   mstream.use(express.urlencoded({ extended: true }));
   mstream.use((req, res, next) => { // CORS
     res.header("Access-Control-Allow-Origin", "*");
@@ -82,7 +83,7 @@ exports.serveIt = async configFile => {
       const matchEnd = req.path.match(/(\/)+$/g);
       const queryString = req.url.match(/(\?.*)/g) === null ? '' : req.url.match(/(\?.*)/g);
       // redirect to a more sane URL
-      return res.redirect(301, req.path.slice(0, (matchEnd[0].length - 1)*-1) + queryString);
+      return res.redirect(302, req.path.slice(0, (matchEnd[0].length - 1)*-1) + queryString);
     }
     next();
   });
@@ -90,7 +91,16 @@ exports.serveIt = async configFile => {
   // Block access to admin page if necessary
   mstream.get('/admin', (req, res, next) => {
     if (config.program.lockAdmin === true) { return res.send('<p>Admin Page Disabled</p>'); }
-    next();
+    if (Object.keys(config.program.users).length === 0){
+      return next();
+    }
+
+    try {
+      jwt.verify(req.cookies['x-access-token'], config.program.secret);
+      next();
+    } catch(err) {
+      return res.redirect(302, '/login');
+    }
   });
 
   mstream.get('/admin/index.html', (req, res, next) => {
@@ -107,18 +117,18 @@ exports.serveIt = async configFile => {
       jwt.verify(req.cookies['x-access-token'], config.program.secret);
       next();
     } catch(err) {
-      return res.redirect(301, 'login');
+      return res.redirect(302, '/login');
     }
   });
 
   mstream.get('/login', (req, res, next) => {
     if (Object.keys(config.program.users).length === 0){
-      return res.redirect(301, '..');
+      return res.redirect(302, '..');
     }
 
     try {
       jwt.verify(req.cookies['x-access-token'], config.program.secret);
-      return res.redirect(301, '..');
+      return res.redirect(302, '..');
     } catch(err) {
       next();
     }
@@ -151,7 +161,15 @@ exports.serveIt = async configFile => {
   mstream.get('/api/', (req, res) => res.json({ "server": require('../package.json').version, "apiVersions": ["1"] }));
 
   // album art folder
-  mstream.use('/album-art', express.static(config.program.storage.albumArtDirectory));
+  mstream.get('/album-art/:file', (req, res) => {
+    if (!req.params.file) { throw new WebError('Missing Error', 404); }
+
+    if (req.query.compress && fs.existsSync(path.join(config.program.storage.albumArtDirectory, `z${req.query.compress}-${req.params.file}`))) {
+      return res.sendFile(path.join(config.program.storage.albumArtDirectory, `z${req.query.compress}-${req.params.file}`));
+    }
+
+    res.sendFile(path.join(config.program.storage.albumArtDirectory, req.params.file));
+  });
 
   // TODO: determine if user has access to the exact file
   // mstream.all('/media/*', (req, res, next) => {

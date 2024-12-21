@@ -18,7 +18,7 @@ exports.saveFile = async (saveData, file) => {
   return await fs.writeFile(file, JSON.stringify(saveData, null, 2), 'utf8')
 }
 
-exports.addDirectory = async (directory, vpath, autoAccess, mstream) => {
+exports.addDirectory = async (directory, vpath, autoAccess, isAudioBooks, mstream) => {
   // confirm directory is real
   const stat = await fs.stat(directory);
   if (!stat.isDirectory()) { throw `${directory} is not a directory` };
@@ -30,6 +30,7 @@ exports.addDirectory = async (directory, vpath, autoAccess, mstream) => {
     // Once the file save is complete, the new user will be added
   const memClone = JSON.parse(JSON.stringify(config.program.folders));
   memClone[vpath] = { root: directory };
+  if (isAudioBooks) { memClone[vpath].type = 'audio-books'; }
 
   // add directory to config file
   const loadConfig = await this.loadFile(config.configFile);
@@ -44,7 +45,7 @@ exports.addDirectory = async (directory, vpath, autoAccess, mstream) => {
   await this.saveFile(loadConfig, config.configFile);
 
   // add directory to program
-  config.program.folders[vpath] = { root: directory };
+  config.program.folders[vpath] = memClone[vpath];
 
   if (autoAccess === true) {
     Object.values(config.program.users).forEach(user => {
@@ -187,6 +188,17 @@ exports.editPort = async (port) => {
   mStreamServer.reboot();
 }
 
+exports.editMaxRequestSize = async (maxRequestSize) => {
+  if (config.program.maxRequestSize === maxRequestSize) { return; }
+
+  const loadConfig = await this.loadFile(config.configFile);
+  loadConfig.maxRequestSize = maxRequestSize;
+  await this.saveFile(loadConfig, config.configFile);
+
+  // reboot server
+  mStreamServer.reboot();
+}
+
 exports.editUpload = async (val) => {
   const loadConfig = await this.loadFile(config.configFile);
   loadConfig.noUpload = val;
@@ -242,6 +254,15 @@ exports.editSkipImg = async (val) => {
   config.program.scanOptions.skipImg = val;
 }
 
+exports.editNewScan = async (val) => {
+  const loadConfig = await this.loadFile(config.configFile);
+  if (!loadConfig.scanOptions) { loadConfig.scanOptions = {}; }
+  loadConfig.scanOptions.newScan = val;
+  await this.saveFile(loadConfig, config.configFile);
+
+  config.program.scanOptions.newScan = val;
+}
+
 exports.editPause = async (val) => {
   const loadConfig = await this.loadFile(config.configFile);
   if (!loadConfig.scanOptions) { loadConfig.scanOptions = {}; }
@@ -267,6 +288,15 @@ exports.editMaxConcurrentTasks = async (val) => {
   await this.saveFile(loadConfig, config.configFile);
 
   config.program.scanOptions.maxConcurrentTasks = val;
+}
+
+exports.editCompressImages = async (val) => {
+  const loadConfig = await this.loadFile(config.configFile);
+  if (!loadConfig.scanOptions) { loadConfig.scanOptions = {}; }
+  loadConfig.scanOptions.compressImage = val;
+  await this.saveFile(loadConfig, config.configFile);
+
+  config.program.scanOptions.compressImage = val;
 }
 
 exports.editWriteLogs = async (val) => {
@@ -328,12 +358,14 @@ exports.lockAdminApi = async (val) => {
 }
 
 exports.enableFederation = async (val) => {
+  const memClone = JSON.parse(JSON.stringify(config.program.federation));
+  memClone.enabled = val;
+
   const loadConfig = await this.loadFile(config.configFile);
-  loadConfig.federation.enabled = val;
+  loadConfig.federation = memClone;
   await this.saveFile(loadConfig, config.configFile);
 
   config.program.federation.enabled = val;
-
   syncthing.setup();
 }
 
@@ -358,12 +390,12 @@ function testSSL(jsonLoad) {
 }
 
 exports.setSSL = async (cert, key) => {
-    const sslObj = { key, cert };
-    await testSSL(sslObj);
-    const loadConfig = await this.loadFile(config.configFile);
-    loadConfig.ssl = sslObj;
-    await this.saveFile(loadConfig, config.configFile);
-  
-    config.program.ssl = sslObj;
-    mStreamServer.reboot();
+  const sslObj = { key, cert };
+  await testSSL(sslObj);
+  const loadConfig = await this.loadFile(config.configFile);
+  loadConfig.ssl = sslObj;
+  await this.saveFile(loadConfig, config.configFile);
+
+  config.program.ssl = sslObj;
+  mStreamServer.reboot();
 }

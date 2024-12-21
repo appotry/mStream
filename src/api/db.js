@@ -40,18 +40,23 @@ function renderMetadataObj(row) {
       "year": row.year ? row.year : null,
       "album-art": row.aaFile ? row.aaFile : null,
       "rating": row.rating ? row.rating : null,
+      "play-count": row.playCount ? row.playCount : null,
+      "last-played": row.lastPlayed ? row.lastPlayed : null,
       "replaygain-track": row.replaygainTrack ? row.replaygainTrack : null
     }
   };
 }
 
-function renderOrClause(vpaths) {
+function renderOrClause(vpaths, ignoreVPaths) {
   if (vpaths.length === 1) {
     return { 'vpath': { '$eq': vpaths[0] } };
   }
 
   const returnThis = { '$or': [] }
   for (let vpath of vpaths) {
+    if (ignoreVPaths && typeof ignoreVPaths === 'object' && ignoreVPaths.includes(vpath)) {
+      continue;
+    }
     returnThis['$or'].push({ 'vpath': { '$eq': vpath } })
   }
 
@@ -74,28 +79,53 @@ exports.setup = (mstream) => {
   });
 
   mstream.post('/api/v1/db/metadata', (req, res) => {
-    const pathInfo = vpath.getVPathInfo(req.body.filepath, req.user);
-    if (!db.getFileCollection()) { return res.json({ "filepath": req.body.filepath, "metadata": {} }); }
+    res.json(this.pullMetaData(req.body.filepath, req.user));
+  });
+
+  mstream.post('/api/v1/db/metadata/batch', (req, res) => {
+    const returnThis = {};
+    req.body.forEach(f => {
+      console.log(f)
+      returnThis[f] = this.pullMetaData(f, req.user);
+    });
+
+    res.json(returnThis);
+  });
+
+  exports.pullMetaData = (filepath, user) => {
+    const pathInfo = vpath.getVPathInfo(filepath, user);
+    if (!db.getFileCollection()) { return { "filepath": filepath, "metadata": null }; }
 
     const leftFun = (leftData) => {
-      return leftData.hash + '-' + req.user.username;
+      return leftData.hash + '-' + user.username;
     };
 
     const result = db.getFileCollection().chain().find({ '$and': [{'filepath': pathInfo.relativePath}, {'vpath': pathInfo.vpath}] }, true)
       .eqJoin(db.getUserMetadataCollection().chain(), leftFun, rightFunDefault, mapFunDefault).data();
 
     if (!result || !result[0]) {
-      return res.json({ "filepath": req.body.filepath, "metadata": {} });
+      return { "filepath": filepath, "metadata": null };
     }
 
-    res.json(renderMetadataObj(result[0]));
+    return renderMetadataObj(result[0]);
+  }
+
+  // legacy enpoint, moved to POST
+  mstream.get('/api/v1/db/artists', (req, res) => {
+    const artists = getArtists(req);
+    res.json(artists);
   });
 
-  mstream.get('/api/v1/db/artists', (req, res) => {
+  mstream.post('/api/v1/db/artists', (req, res) => {
+    const artists = getArtists(req);
+    res.json(artists);
+  });
+
+  function getArtists(req) {
     const artists = { "artists": [] };
     if (!db.getFileCollection()) { res.json(artists); }
     
-    const results = db.getFileCollection().find(renderOrClause(req.user.vpaths));
+    const results = db.getFileCollection().find(renderOrClause(req.user.vpaths, req.body.ignoreVPaths));
     const store = {};
     for (let row of results) {
       if (!store[row.artist] && !(row.artist === undefined || row.artist === null)) {
@@ -107,8 +137,8 @@ exports.setup = (mstream) => {
       return a.localeCompare(b);
     });
 
-    res.json(artists);
-  });
+    return artists;
+  }
     
   mstream.post('/api/v1/db/artists-albums', (req, res) => {
     const albums = { "albums": [] };
@@ -116,7 +146,7 @@ exports.setup = (mstream) => {
 
     const results = db.getFileCollection().chain().find({
       '$and': [
-        renderOrClause(req.user.vpaths),
+        renderOrClause(req.user.vpaths, req.body.ignoreVPaths),
         {'artist': { '$eq': String(req.body.artist) }}
       ]
     }).simplesort('year', true).data();
@@ -146,10 +176,20 @@ exports.setup = (mstream) => {
   });
 
   mstream.get('/api/v1/db/albums', (req, res) => {
+    const albums = getAlbums(req);
+    res.json(albums);
+  });
+
+  mstream.post('/api/v1/db/albums', (req, res) => {
+    const albums = getAlbums(req);
+    res.json(albums);
+  });
+
+  function getAlbums(req) {
     const albums = { "albums": [] };
     if (!db.getFileCollection()) { return res.json(albums); }
 
-    const results = db.getFileCollection().find(renderOrClause(req.user.vpaths));
+    const results = db.getFileCollection().find(renderOrClause(req.user.vpaths, req.body.ignoreVPaths));
     const store = {};
     for (let row of results) {
       if (store[`${row.album}${row.year}`] || (row.album === undefined || row.album === null)) {
@@ -164,14 +204,14 @@ exports.setup = (mstream) => {
       return a.name.localeCompare(b.name);
     });
 
-    res.json(albums);
-  });
+    return albums;
+  }
 
   mstream.post('/api/v1/db/album-songs', (req, res) => {
     if (!db.getFileCollection()) { throw new Error('DB Not Working'); }
 
     const searchClause = [
-      renderOrClause(req.user.vpaths),
+      renderOrClause(req.user.vpaths, req.body.ignoreVPaths),
       {'album': { '$eq': req.body.album ? String(req.body.album) : null }}
     ];
 
@@ -205,6 +245,7 @@ exports.setup = (mstream) => {
       noAlbums: Joi.boolean().optional(),
       noTitles: Joi.boolean().optional(),
       noFiles: Joi.boolean().optional(),
+      ignoreVPaths: Joi.array().items(Joi.string()).optional()
     });
     joiValidate(schema, req.body);
 
@@ -226,7 +267,7 @@ exports.setup = (mstream) => {
 
     const findThis = {
       '$and': [
-        renderOrClause(req.user.vpaths),
+        renderOrClause(req.user.vpaths, req.body.ignoreVPaths),
         {[searchCol]: {'$regex': [escapeStringRegexp(String(req.body.search)), 'i']}}
       ]
     };
@@ -259,6 +300,16 @@ exports.setup = (mstream) => {
   }
 
   mstream.get('/api/v1/db/rated', (req, res) => {
+    const songs = getRatedSongs(req);
+    res.json(songs);
+  });
+
+  mstream.post('/api/v1/db/rated', (req, res) => {
+    const songs = getRatedSongs(req);
+    res.json(songs);
+  });
+
+  function getRatedSongs(req) {
     if (!db.getFileCollection()) { throw new Error('DB Not Ready'); }
 
     const mapFun = (left, right) => {
@@ -287,7 +338,7 @@ exports.setup = (mstream) => {
 
     const results = db.getUserMetadataCollection().chain().eqJoin(db.getFileCollection().chain(), leftFun, rightFun, mapFun).find({
       '$and': [
-        renderOrClause(req.user.vpaths), 
+        renderOrClause(req.user.vpaths, req.body.ignoreVPaths), 
         { 'rating': { '$gt': 0 } }
       ]
     }).simplesort('rating', true).data();
@@ -296,8 +347,9 @@ exports.setup = (mstream) => {
     for (const row of results) {
       songs.push(renderMetadataObj(row));
     }
-    res.json(songs);
-  });
+
+    return songs;
+  }
 
   mstream.post('/api/v1/db/rate-song', (req, res) => {
     const schema = Joi.object({
@@ -329,7 +381,10 @@ exports.setup = (mstream) => {
   });
 
   mstream.post('/api/v1/db/recent/added', (req, res) => {
-    const schema = Joi.object({ limit: Joi.number().integer().min(1).required() });
+    const schema = Joi.object({ 
+      limit: Joi.number().integer().min(1).required(), 
+      ignoreVPaths: Joi.array().items(Joi.string()).optional()
+    });
     joiValidate(schema, req.body);
 
     if (!db.getFileCollection()) { throw new Error('DB Not Ready'); }
@@ -340,10 +395,110 @@ exports.setup = (mstream) => {
 
     const results = db.getFileCollection().chain().find({
       '$and': [
-        renderOrClause(req.user.vpaths), 
+        renderOrClause(req.user.vpaths, req.body.ignoreVPaths), 
         { 'ts': { '$gt': 0 } }
       ]
     }).simplesort('ts', true).limit(req.body.limit).eqJoin(db.getUserMetadataCollection().chain(), leftFun, rightFunDefault, mapFunDefault).data();
+
+    const songs = [];
+    for (const row of results) {
+      songs.push(renderMetadataObj(row));
+    }
+
+    res.json(songs);
+  });
+
+  mstream.post('/api/v1/db/stats/recently-played', (req, res) => {
+    const schema = Joi.object({ 
+      limit: Joi.number().integer().min(1).required(), 
+      ignoreVPaths: Joi.array().items(Joi.string()).optional()
+    });
+    joiValidate(schema, req.body);
+
+    if (!db.getFileCollection()) { throw new Error('DB Not Ready'); }
+
+    const mapFun = (left, right) => {
+      return {
+        artist: right.artist,
+        album: right.album,
+        hash: right.hash,
+        track: right.track,
+        title: right.title,
+        year: right.year,
+        aaFile: right.aaFile,
+        filepath: right.filepath,
+        rating: left.rating,
+        lastPlayed: left.lp,
+        playCount: left.pc,
+        "replaygain-track-db": right.replaygainTrackDb,
+        vpath: right.vpath
+      };
+    };
+    
+    const leftFun = (leftData) => {
+      return leftData.hash + '-' + leftData.user;
+    };
+    
+    const rightFun = (rightData) => {
+      return rightData.hash + '-' + req.user.username;
+    };
+
+    const results = db.getUserMetadataCollection().chain().eqJoin(db.getFileCollection().chain(), leftFun, rightFun, mapFun).find({
+      '$and': [
+        renderOrClause(req.user.vpaths, req.body.ignoreVPaths), 
+        { 'lastPlayed': { '$gt': 0 } }
+      ]
+    }).simplesort('lastPlayed', true).data();
+
+    const songs = [];
+    for (const row of results) {
+      songs.push(renderMetadataObj(row));
+    }
+
+    res.json(songs);
+  });
+
+  mstream.post('/api/v1/db/stats/most-played', (req, res) => {
+    const schema = Joi.object({ 
+      limit: Joi.number().integer().min(1).required(), 
+      ignoreVPaths: Joi.array().items(Joi.string()).optional()
+    });
+    joiValidate(schema, req.body);
+
+    if (!db.getFileCollection()) { throw new Error('DB Not Ready'); }
+
+    const mapFun = (left, right) => {
+      return {
+        artist: right.artist,
+        album: right.album,
+        hash: right.hash,
+        track: right.track,
+        title: right.title,
+        year: right.year,
+        aaFile: right.aaFile,
+        filepath: right.filepath,
+        rating: left.rating,
+        lastPlayed: left.lp,
+        playCount: left.pc,
+        "replaygain-track-db": right.replaygainTrackDb,
+        vpath: right.vpath
+      };
+    };
+    
+    const leftFun = (leftData) => {
+      return leftData.hash + '-' + leftData.user;
+    };
+    
+    const rightFun = (rightData) => {
+      return rightData.hash + '-' + req.user.username;
+    };
+
+    const results = db.getUserMetadataCollection().chain().eqJoin(db.getFileCollection().chain(), leftFun, rightFun, mapFun).find({
+      '$and': [
+        renderOrClause(req.user.vpaths, req.body.ignoreVPaths), 
+        { 'playCount': { '$gt': 0 } }
+      ]
+    }).simplesort('playCount', true).data();
 
     const songs = [];
     for (const row of results) {
@@ -369,7 +524,7 @@ exports.setup = (mstream) => {
 
     let orClause = { '$or': [] };
     for (let vpath of req.user.vpaths) {
-      if (req.body.ignoreVPaths && typeof req.body.ignoreVPaths === 'object' && req.body.ignoreVPaths[vpath] === true) {
+      if (req.body.ignoreVPaths && typeof req.body.ignoreVPaths === 'object' && req.body.ignoreVPaths.includes(vpath)) {
         continue;
       }
       orClause['$or'].push({ 'vpath': { '$eq': vpath } });
@@ -458,4 +613,8 @@ exports.setup = (mstream) => {
 
     res.json(returnThis);
   });
+
+  // mstream.post('/api/v1/db/song-position', (req, res) => {
+
+  // });
 }

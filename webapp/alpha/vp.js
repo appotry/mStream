@@ -1,6 +1,10 @@
 const VUEPLAYERCORE = (() => {
   const mstreamModule = {};
 
+  mstreamModule.livePlaylist = {
+    name: false
+  };
+
   mstreamModule.altLayout = {
     'moveMeta': false,
     'audioBookCtrls': false,
@@ -86,17 +90,24 @@ const VUEPLAYERCORE = (() => {
       playlists: mstreamModule.playlists,
       showClear: showClearLink,
       altLayout: mstreamModule.altLayout,
-      meta: MSTREAMPLAYER.playerStats.metadata
+      meta: MSTREAMPLAYER.playerStats.metadata,
+      livePlaylist: mstreamModule.livePlaylist
     },
     computed: {
       albumArtPath: function () {
         if (!this.meta['album-art']) {
           return 'assets/img/default.png';
         }
-        return MSTREAMAPI.currentServer.host + `album-art/${this.meta['album-art']}?token=${MSTREAMPLAYER.getCurrentSong().authToken}`;
+        return MSTREAMAPI.currentServer.host + `album-art/${this.meta['album-art']}?compress=l&token=${MSTREAMPLAYER.getCurrentSong().authToken}`;
       }
     },
     methods: {
+      getSongInfo: function() {
+        openMetadataModal(MSTREAMPLAYER.getCurrentSong().metadata, MSTREAMPLAYER.getCurrentSong().rawFilePath);
+      },
+      gsi2: function() {
+        openMetadataModal(cps.metadata, cps.rawFilePath);
+      },
       goToArtist: function() {
         const el = document.createElement('DIV');
         el.setAttribute('data-artist', this.meta.artist);
@@ -111,6 +122,13 @@ const VUEPLAYERCORE = (() => {
       checkMove: function (event) {
         document.getElementById("pop").style.visibility = "hidden";
         MSTREAMPLAYER.resetPositionCache();
+        if (mstreamModule.livePlaylist.name) {
+          const songs = [];
+          for (let i = 0; i < MSTREAMPLAYER.playlist.length; i++) {
+            songs.push(MSTREAMPLAYER.playlist[i].filepath);
+          }
+          MSTREAMAPI.savePlaylist(mstreamModule.livePlaylist.name,songs, true);
+        }
       },
       clearRating: async function () {
         try {
@@ -170,6 +188,13 @@ const VUEPLAYERCORE = (() => {
       },
       removeSong: function (event) {
         MSTREAMPLAYER.removeSongAtPosition(this.index, false);
+        if (mstreamModule.livePlaylist.name) {
+          const songs = [];
+          for (let i = 0; i < MSTREAMPLAYER.playlist.length; i++) {
+            songs.push(MSTREAMPLAYER.playlist[i].filepath);
+          }
+          MSTREAMAPI.savePlaylist(mstreamModule.livePlaylist.name,songs, true);
+        }
       },
       downloadSong: function (event) {
         const link = document.createElement("a");
@@ -369,10 +394,13 @@ const VUEPLAYERCORE = (() => {
         if (!this.meta['album-art']) {
           return 'assets/img/default.png';
         }
-        return MSTREAMAPI.currentServer.host + `album-art/${this.meta['album-art']}?token=${MSTREAMPLAYER.getCurrentSong().authToken}`;
+        return MSTREAMAPI.currentServer.host + `album-art/${this.meta['album-art']}?compress=l&token=${MSTREAMPLAYER.getCurrentSong().authToken}`;
       }
     },
     methods: {
+      getSongInfo: function() {
+        openMetadataModal(MSTREAMPLAYER.getCurrentSong().metadata, MSTREAMPLAYER.getCurrentSong().rawFilePath);
+      },
       changeVol: function(event) {
         const rect = this.$refs.volumeWrapper.getBoundingClientRect();
         const x = event.clientX - rect.left; //x position within the element.
@@ -506,11 +534,12 @@ const VUEPLAYERCORE = (() => {
     }
   });
 
-  mstreamModule.addSongWizard = async (filepath, metadata, lookupMetadata, position) => {
+  mstreamModule.addSongWizard = async (filepath, metadata, lookupMetadata, position, livePlaylist, autoPlayOff) => {
     // Escape filepath
-    var rawFilepath = filepath;
+    const rawFilepath = filepath;
     filepath = filepath.replace(/\%/g, "%25");
     filepath = filepath.replace(/\#/g, "%23");
+    filepath = filepath.replace(/\?/g, "%3F");
     if (filepath.charAt(0) === '/') {
       filepath = filepath.substr(1);
     }
@@ -535,8 +564,18 @@ const VUEPLAYERCORE = (() => {
 
     if (position) {
       MSTREAMPLAYER.insertSongAt(newSong, position, true);
+      if (mstreamModule.livePlaylist.name) {
+        const songs = [];
+        for (let i = 0; i < MSTREAMPLAYER.playlist.length; i++) {
+          songs.push(MSTREAMPLAYER.playlist[i].filepath);
+        }
+        MSTREAMAPI.savePlaylist(mstreamModule.livePlaylist.name,songs, true);
+      }
     } else {
-      MSTREAMPLAYER.addSong(newSong);
+      MSTREAMPLAYER.addSong(newSong, autoPlayOff);
+      if (mstreamModule.livePlaylist.name && livePlaylist !== false) {
+        await MSTREAMAPI.addToPlaylist(mstreamModule.livePlaylist.name, newSong.filepath);
+      }
     }
 
     // perform lookup
@@ -549,6 +588,17 @@ const VUEPLAYERCORE = (() => {
       }
     }
   };
+
+  mstreamModule.clearQueue = async() => {
+    MSTREAMPLAYER.clearPlaylist();
+    if (mstreamModule.livePlaylist.name) {
+      const songs = [];
+      for (let i = 0; i < MSTREAMPLAYER.playlist.length; i++) {
+        songs.push(MSTREAMPLAYER.playlist[i].filepath);
+      }
+      MSTREAMAPI.savePlaylist(mstreamModule.livePlaylist.name,songs, true);
+    }
+  }
 
   return mstreamModule;
 })()

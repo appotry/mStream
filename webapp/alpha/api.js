@@ -39,8 +39,12 @@ const MSTREAMAPI = (() => {
     return req('POST', mstreamModule.currentServer.host + 'api/v1/file-explorer/recursive', { directory: directory });
   }
 
-  mstreamModule.savePlaylist =  (title, songs) => {
-    return req('POST', mstreamModule.currentServer.host + 'api/v1/playlist/save', { title: title, songs: songs });
+  mstreamModule.savePlaylist =  (title, songs, live) => {
+    const postData = { title: title, songs: songs };
+    if (live !== undefined) {
+      postData.live = live;
+    }
+    return req('POST', mstreamModule.currentServer.host + 'api/v1/playlist/save', postData);
   }
 
   mstreamModule.newPlaylist =  (title) => {
@@ -71,20 +75,20 @@ const MSTREAMAPI = (() => {
     return req('POST', mstreamModule.currentServer.host + 'api/v1/db/search', postObject);
   }
 
-  mstreamModule.artists =  () => {
-    return req('GET', mstreamModule.currentServer.host + 'api/v1/db/artists', false);
+  mstreamModule.artists =  (postObject) => {
+    return req('POST', mstreamModule.currentServer.host + 'api/v1/db/artists', postObject);
   }
 
-  mstreamModule.albums =  () => {
-    return req('GET', mstreamModule.currentServer.host + 'api/v1/db/albums', false);
+  mstreamModule.albums =  (postObject) => {
+    return req('POST', mstreamModule.currentServer.host + 'api/v1/db/albums', postObject);
   }
 
-  mstreamModule.artistAlbums =  (artist) => {
-    return req('POST', mstreamModule.currentServer.host + "api/v1/db/artists-albums", { artist: artist });
+  mstreamModule.artistAlbums =  (postObject) => {
+    return req('POST', mstreamModule.currentServer.host + "api/v1/db/artists-albums", postObject);
   }
 
-  mstreamModule.albumSongs =  (album, artist, year) => {
-    return req('POST', mstreamModule.currentServer.host + "api/v1/db/album-songs", { album, artist, year });
+  mstreamModule.albumSongs =  (postObject) => {
+    return req('POST', mstreamModule.currentServer.host + "api/v1/db/album-songs", postObject);
   }
 
   mstreamModule.dbStatus =  () => {
@@ -99,12 +103,20 @@ const MSTREAMAPI = (() => {
     return req('POST', mstreamModule.currentServer.host + "api/v1/db/rate-song", { filepath: filepath, rating: rating });
   }
 
-  mstreamModule.getRated =  () => {
-    return req('GET', mstreamModule.currentServer.host + "api/v1/db/rated", false);
+  mstreamModule.getRated =  (postObject) => {
+    return req('POST', mstreamModule.currentServer.host + "api/v1/db/rated", postObject);
   }
 
-  mstreamModule.getRecentlyAdded =  (limit) => {
-    return req('POST', mstreamModule.currentServer.host + "api/v1/db/recent/added", { limit: limit });
+  mstreamModule.getRecentlyAdded =  (limit, ignoreVPaths) => {
+    return req('POST', mstreamModule.currentServer.host + "api/v1/db/recent/added", { limit: limit, ignoreVPaths });
+  }
+
+  mstreamModule.getRecentlyPlayed =  (limit, ignoreVPaths) => {
+    return req('POST', mstreamModule.currentServer.host + "api/v1/db/stats/recently-played", { limit: limit, ignoreVPaths });
+  }
+
+  mstreamModule.getMostPlayed =  (limit, ignoreVPaths) => {
+    return req('POST', mstreamModule.currentServer.host + "api/v1/db/stats/most-played", { limit: limit, ignoreVPaths });
   }
 
   mstreamModule.lookupMetadata =  (filepath) => {
@@ -120,6 +132,10 @@ const MSTREAMAPI = (() => {
     return req('POST', mstreamModule.currentServer.host +  "api/v1/lastfm/scrobble-by-metadata", { artist: artist, album: album, track: trackName });
   }
 
+  mstreamModule.scrobbleByFilePath =  (filePath) => {
+    return req('POST', mstreamModule.currentServer.host +  "api/v1/lastfm/scrobble-by-filepath", { filePath });
+  }
+
   // LOGIN
   mstreamModule.login =  (username, password, url) => {
     return req('POST', url ? url + "api/v1/auth/login" : "api/v1/auth/login", { username: username, password: password });
@@ -132,7 +148,7 @@ const MSTREAMAPI = (() => {
   mstreamModule.logout = () => {
     localStorage.removeItem('token');
     Cookies.remove('x-access-token');
-    window.location.href = './login';
+    document.location.assign(window.location.href + (window.location.href.slice(-1) === '/' ? '' : '/') + 'login');
   }
 
   return mstreamModule;

@@ -1,6 +1,10 @@
 name: build-electron
 
-on: push
+on:
+  push:
+    tags:        
+      - '*'  
+
 jobs:
   release:
     runs-on: ${{ matrix.os }}
@@ -11,12 +15,12 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Node.js, NPM and Yarn
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: 14
+          node-version: 20
 
       - name: Build/release Electron app
         uses: samuelmeuli/action-electron-builder@v1.6.0

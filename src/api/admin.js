@@ -8,6 +8,7 @@ const fileExplorer = require('../util/file-explorer');
 const admin = require('../util/admin');
 const config = require('../state/config');
 const dbQueue = require('../db/task-queue');
+const imageCompress = require('../db/image-compress-manager');
 const transcode = require('./transcode');
 const db = require('../db/manager');
 const { joiValidate } = require('../util/validation');
@@ -107,6 +108,16 @@ exports.setup = (mstream) => {
     res.json({});
   });
 
+  mstream.post("/api/v1/admin/db/params/new-scan", async (req, res) => {
+    const schema = Joi.object({
+      newScan: Joi.boolean().required()
+    });
+    joiValidate(schema, req.body);
+
+    await admin.editNewScan(req.body.newScan);
+    res.json({});
+  });
+
   mstream.post("/api/v1/admin/db/params/pause", async (req, res) => {
     const schema = Joi.object({
       pause:  Joi.number().integer().min(0).required()
@@ -137,6 +148,16 @@ exports.setup = (mstream) => {
     res.json({});
   });
 
+  mstream.post("/api/v1/admin/db/params/compress-image", async (req, res) => {
+    const schema = Joi.object({
+      compressImage:  Joi.boolean().required()
+    });
+    joiValidate(schema, req.body);
+
+    await admin.editCompressImages(req.body.compressImage);
+    res.json({});
+  });
+
   mstream.get("/api/v1/admin/users", (req, res) => {
     // Scrub passwords
     const memClone = JSON.parse(JSON.stringify(config.program.users));
@@ -153,11 +174,17 @@ exports.setup = (mstream) => {
     const schema = Joi.object({
       directory: Joi.string().required(),
       vpath: Joi.string().pattern(/[a-zA-Z0-9-]+/).required(),
-      autoAccess: Joi.boolean().default(false)
+      autoAccess: Joi.boolean().default(false),
+      isAudioBooks: Joi.boolean().default(false)
     });
     const input = joiValidate(schema, req.body);
 
-    await admin.addDirectory(input.value.directory, input.value.vpath, input.value.autoAccess, mstream);
+    await admin.addDirectory(
+      input.value.directory,
+      input.value.vpath,
+      input.value.autoAccess,
+      input.value.isAudioBooks,
+      mstream);
     res.json({});
 
     try {
@@ -193,6 +220,10 @@ exports.setup = (mstream) => {
       input.value.vpaths
     );
     res.json({});
+  });
+  
+  mstream.post("/api/v1/admin/db/force-compress-images", (req, res) => {
+    res.json({ started: imageCompress.run() });
   });
 
   mstream.post("/api/v1/admin/db/scan/all", (req, res) => {
@@ -276,8 +307,19 @@ exports.setup = (mstream) => {
       writeLogs: config.program.writeLogs,
       secret: config.program.secret.slice(-4),
       ssl: config.program.ssl,
-      storage: config.program.storage
+      storage: config.program.storage,
+      maxRequestSize: config.program.maxRequestSize
     });
+  });
+
+  mstream.post("/api/v1/admin/config/max-request-size", async (req, res) => {
+    const schema = Joi.object({
+      maxRequestSize: Joi.string().pattern(/[0-9]+(KB|MB)/i).required()
+    });
+    joiValidate(schema, req.body);
+
+    await admin.editMaxRequestSize(req.body.maxRequestSize);
+    res.json({});
   });
 
   mstream.post("/api/v1/admin/config/port", async (req, res) => {

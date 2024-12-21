@@ -19,10 +19,6 @@ function addScanTask(vpath) {
   }
 }
 
-function removeTask(taskId) {
-
-}
-
 function scanAll() {
   Object.keys(config.program.folders).forEach((vpath) => {
     addScanTask(vpath);
@@ -50,10 +46,13 @@ function runScan(scanObj) {
     pause: config.program.scanOptions.pause,
     supportedFiles: config.program.supportedAudioFiles,
     scanId: scanObj.id,
-    isHttps: config.getIsHttps()
+    isHttps: config.getIsHttps(),
+    compressImage: config.program.scanOptions.compressImage
   };
 
-  const forkedScan = child.fork(path.join(__dirname, './scanner.js'), [JSON.stringify(jsonLoad)], { silent: true });
+  winston.info('Using new file scanner: ' + config.program.scanOptions.newScan);
+  const scanFile = config.program.scanOptions.newScan ? 'scanner.mjs' : 'scanner.js';
+  const forkedScan = child.fork(path.join(__dirname, `./${scanFile}`), [JSON.stringify(jsonLoad)], { silent: true });
   winston.info(`File scan started on ${jsonLoad.directory}`);
   runningTasks.add(forkedScan);
   vpathLimiter.add(scanObj.vpath);

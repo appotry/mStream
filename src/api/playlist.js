@@ -15,11 +15,22 @@ exports.setup = (mstream) => {
       }
     }
 
-    res.json({
+    const returnThis = {
       vpaths: req.user.vpaths,
       playlists: getPlaylists(req.user.username),
-      transcode
+      transcode,
+      vpathMetaData: {}
+    };
+
+    req.user.vpaths.forEach(p => {
+      if (config.program.folders[p]) {
+        returnThis.vpathMetaData[p] = {
+          type: config.program.folders[p].type
+        };
+      }
     });
+
+    res.json(returnThis);
   });
 
   mstream.post('/api/v1/playlist/delete', (req, res) => {
@@ -91,7 +102,8 @@ exports.setup = (mstream) => {
     db.getPlaylistCollection().insert({
       name: req.body.title,
       filepath: null,
-      user: req.user.username
+      user: req.user.username,
+      live: false
     });
 
     db.saveUserDB();
@@ -101,7 +113,8 @@ exports.setup = (mstream) => {
   mstream.post('/api/v1/playlist/save', (req, res) => {
     const schema = Joi.object({
       title: Joi.string().required(),
-      songs: Joi.array().items(Joi.string())
+      songs: Joi.array().items(Joi.string()),
+      live: Joi.boolean().optional()
     });
     joiValidate(schema, req.body);
 
@@ -125,8 +138,10 @@ exports.setup = (mstream) => {
     db.getPlaylistCollection().insert({
       name: req.body.title,
       filepath: null,
-      user: req.user.username
+      user: req.user.username,
+      live: typeof req.body.live === 'boolean' ? req.body.live : false
     });
+  
 
     db.saveUserDB();
     res.json({});
@@ -139,13 +154,9 @@ exports.setup = (mstream) => {
   function getPlaylists(username) {
     const playlists = [];
 
-    const results = db.getPlaylistCollection().find({ 'user': { '$eq': username } });
-    const store = {};
+    const results = db.getPlaylistCollection().find({ 'user': { '$eq': username }, 'filepath': { '$eq': null } });
     for (let row of results) {
-      if (!store[row.name]) {
-        playlists.push({ name: row.name });
-        store[row.name] = true;
-      }
+      playlists.push({ name: row.name });
     }
     return playlists;
   }

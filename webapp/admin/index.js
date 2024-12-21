@@ -262,6 +262,10 @@ const foldersView = Vue.component('folders-view', {
                         <input id="folder-auto-access" type="checkbox" checked/>
                         <span>Give Access To All Users</span>
                       </label></div>
+                      <div class="pad-checkbox"><label>
+                        <input id="folder-is-audiobooks" type="checkbox"/>
+                        <span>Audiobooks & Podcasts</span>
+                      </label></div>
                     </div>
                     <button class="btn green waves-effect waves-light col m6 s12" type="submit" :disabled="submitPending === true">
                       {{submitPending === false ? 'Add Folder' : 'Adding...'}}
@@ -345,7 +349,8 @@ const foldersView = Vue.component('folders-view', {
             data: {
               directory: this.folder.value,
               vpath: this.dirName,
-              autoAccess: document.getElementById('folder-auto-access').checked
+              autoAccess: document.getElementById('folder-auto-access').checked,
+              isAudioBooks: document.getElementById('folder-is-audiobooks').checked
             }
           });
 
@@ -445,7 +450,7 @@ const usersView = Vue.component('users-view', {
                 <form id="add-user-form" @submit.prevent="addUser">
                   <div class="row">
                     <div class="input-field directory-name-field col s12 m6">
-                      <input @blur="maybeResetForm()" pattern="[a-zA-Z0-9-]+" v-model="newUsername" id="new-username" required type="text" class="validate">
+                      <input @blur="maybeResetForm()" v-model="newUsername" id="new-username" required type="text" class="validate">
                       <label for="new-username">Username</label>
                     </div>
                     <div class="input-field directory-name-field col s12 m6">
@@ -625,7 +630,7 @@ const usersView = Vue.component('users-view', {
               title: 'You will be taken the login page',
               position: 'center',
               buttons: [['<button>Go!</button>', (instance, toast) => {
-                API.checkAuthAndKickToLogin();
+                API.logout();
                 instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
               }, true]],
             });
@@ -694,6 +699,12 @@ const advancedView = Vue.component('advanced-view', {
                       <td><b>Port:</b> {{params.port}}</td>
                       <td>
                         [<a v-on:click="openModal('edit-port-modal')">edit</a>]
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><b>Max Request Size:</b> {{params.maxRequestSize}}</td>
+                      <td>
+                        [<a v-on:click="openModal('edit-request-size-modal')">edit</a>]
                       </td>
                     </tr>
                     <tr>
@@ -817,7 +828,7 @@ const advancedView = Vue.component('advanced-view', {
               url: `${API.url()}/api/v1/admin/config/secret`,
               data: { strength: 128 }
             }).then(() => {
-              API.checkAuthAndKickToLogin();
+              API.logout();
             }).catch(() => {
               iziToast.error({
                 title: 'Failed',
@@ -928,6 +939,19 @@ const dbView = Vue.component('db-view', {
                       <td><b>Skip Image Metadata:</b> {{dbParams.skipImg}}</td>
                       <td>
                         [<a v-on:click="toggleSkipImg()">edit</a>]
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><b>Compress Images:</b> {{dbParams.compressImage}}</td>
+                      <td>
+                        [<a v-on:click="recompressImages()">re-compress</a>]
+                        [<a v-on:click="toggleCompressImage()">edit</a>]
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><b>Use New File Scanner:</b> {{dbParams.newScan}}</td>
+                      <td>
+                        [<a v-on:click="toggleNewScan()">edit</a>]
                       </td>
                     </tr>
                     <tr>
@@ -1138,6 +1162,144 @@ const dbView = Vue.component('db-view', {
           timeout: 3500
         });
       }
+    },
+    recompressImages: function() {
+      iziToast.question({
+        timeout: 20000,
+        close: false,
+        overlayClose: true,
+        overlay: true,
+        displayMode: 'once',
+        id: 'question',
+        zindex: 99999,
+        layout: 2,
+        maxWidth: 600,
+        title: `<b>Compress All Images?</b>`,
+        message: 'This process will run in the background',
+        position: 'center',
+        buttons: [
+          [`<button><b>Start</b></button>`, async (instance, toast) => {
+            instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
+            
+            try {
+              const res = await API.axios({
+                method: 'POST',
+                url: `${API.url()}/api/v1/admin/db/force-compress-images`,
+              });
+
+              if (res.data.started === true) {
+                iziToast.success({
+                  title: 'Process Started',
+                  position: 'topCenter',
+                  timeout: 3500
+                });
+              } else {
+                iziToast.warning({
+                  title: 'Image Compression In Progress',
+                  position: 'topCenter',
+                  timeout: 3500
+                });
+              }
+
+            } catch (err) {
+              iziToast.error({
+                title: 'Failed',
+                position: 'topCenter',
+                timeout: 3500
+              });
+            }
+          }, true],
+          ['<button>Go Back</button>', (instance, toast) => {
+            instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
+          }],
+        ]
+      });
+    },
+    toggleNewScan: function() {
+      iziToast.question({
+        timeout: 20000,
+        close: false,
+        overlayClose: true,
+        overlay: true,
+        displayMode: 'once',
+        id: 'question',
+        zindex: 99999,
+        layout: 2,
+        maxWidth: 600,
+        title: `<b>${this.dbParams.newScan === true ? 'Disable' : 'Enable'} Use New Scanner?</b>`,
+        position: 'center',
+        buttons: [
+          [`<button><b>${this.dbParams.newScan === true ? 'Disable' : 'Enable'}</b></button>`, (instance, toast) => {
+            instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
+            API.axios({
+              method: 'POST',
+              url: `${API.url()}/api/v1/admin/db/params/new-scan`,
+              data: { newScan: !this.dbParams.newScan }
+            }).then(() => {
+              // update fronted data
+              Vue.set(ADMINDATA.dbParams, 'newScan', !this.dbParams.newScan);
+
+              iziToast.success({
+                title: 'Updated Successfully',
+                position: 'topCenter',
+                timeout: 3500
+              });
+            }).catch(() => {
+              iziToast.error({
+                title: 'Failed',
+                position: 'topCenter',
+                timeout: 3500
+              });
+            });
+          }, true],
+          ['<button>Go Back</button>', (instance, toast) => {
+            instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
+          }],
+        ]
+      });
+    },
+    toggleCompressImage: function() {
+      iziToast.question({
+        timeout: 20000,
+        close: false,
+        overlayClose: true,
+        overlay: true,
+        displayMode: 'once',
+        id: 'question',
+        zindex: 99999,
+        layout: 2,
+        maxWidth: 600,
+        title: `<b>${this.dbParams.compressImage === true ? 'Disable' : 'Enable'} Compress Images?</b>`,
+        position: 'center',
+        buttons: [
+          [`<button><b>${this.dbParams.compressImage === true ? 'Disable' : 'Enable'}</b></button>`, (instance, toast) => {
+            instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
+            API.axios({
+              method: 'POST',
+              url: `${API.url()}/api/v1/admin/db/params/compress-image`,
+              data: { compressImage: !this.dbParams.compressImage }
+            }).then(() => {
+              // update fronted data
+              Vue.set(ADMINDATA.dbParams, 'compressImage', !this.dbParams.compressImage);
+
+              iziToast.success({
+                title: 'Updated Successfully',
+                position: 'topCenter',
+                timeout: 3500
+              });
+            }).catch(() => {
+              iziToast.error({
+                title: 'Failed',
+                position: 'topCenter',
+                timeout: 3500
+              });
+            });
+          }, true],
+          ['<button>Go Back</button>', (instance, toast) => {
+            instance.hide({ transitionOut: 'fadeOut' }, toast, 'button');
+          }],
+        ]
+      });
     },
     toggleSkipImg: function() {
       iziToast.question({
@@ -2371,6 +2533,74 @@ const userAccessView = Vue.component('user-access-view', {
     }
 });
 
+const editRequestSizeModal = Vue.component('edit-request-size-modal', {
+  data() {
+    return {
+      params: ADMINDATA.serverParams,
+      submitPending: false,
+      maxRequestSize: ADMINDATA.serverParams.maxRequestSize
+    };
+  },
+  template: `
+    <form @submit.prevent="updatePort">
+      <div class="modal-content">
+        <h4>Change Max Request Size</h4>
+        <p>Accepts KB or MB</p>
+        <div class="input-field">
+          <input v-model="maxRequestSize" id="edit-max-request-size" required type="text">
+          <label for="edit-port">Edit Max Request Size</label>
+        </div>
+        <blockquote>
+          Requires a reboot.
+        </blockquote>
+      </div>
+      <div class="modal-footer">
+        <a href="#!" class="modal-close waves-effect waves-green btn-flat">Go Back</a>
+        <button class="btn green waves-effect waves-light" type="submit" :disabled="submitPending === true">
+          {{submitPending === false ? 'Update' : 'Updating...'}}
+        </button>
+      </div>
+    </form>`,
+  mounted: function () {
+    M.updateTextFields();
+  },
+  methods: {
+    updatePort: async function() {
+      try {
+        this.submitPending = true;
+        this.maxRequestSize = this.maxRequestSize.replaceAll(' ', '');
+
+        await API.axios({
+          method: 'POST',
+          url: `${API.url()}/api/v1/admin/config/max-request-size`,
+          data: { maxRequestSize: this.maxRequestSize }
+        });
+
+        // update fronted data
+        Vue.set(ADMINDATA.serverParams, 'maxRequestSize', this.maxRequestSize);
+  
+        // close & reset the modal
+        M.Modal.getInstance(document.getElementById('admin-modal')).close();
+
+        iziToast.success({
+          title: 'Success: Allow the server 30 seconds to reboot',
+          position: 'topCenter',
+          timeout: 3500
+        });
+      } catch(err) {
+        iziToast.error({
+          title: 'Failed to Update',
+          position: 'topCenter',
+          timeout: 3500
+        });
+      }finally {
+        this.submitPending = false;
+      }
+    }
+  }
+});
+
+
 const editPortModal = Vue.component('edit-port-modal', {
   data() {
     return {
@@ -3214,6 +3444,7 @@ const modVM = new Vue({
     'user-access-modal': userAccessView,
     'file-explorer-modal': fileExplorerModal,
     'edit-port-modal': editPortModal,
+    'edit-request-size-modal': editRequestSizeModal,
     'edit-address-modal': editAddressModal,
     'edit-scan-interval-modal': editScanIntervalView,
     'edit-save-interval-modal': editSaveIntervalView,

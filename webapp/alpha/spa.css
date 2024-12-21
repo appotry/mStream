@@ -998,3 +998,11 @@ select {
 .mobile-links img {
   width: 100%;
 }
+
+.no-margin p {
+  margin: 0;
+}
+
+.make-white {
+  color: #FFF;
+}

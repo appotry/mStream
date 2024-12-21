@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const fsOld = require('fs');
-const Busboy = require("busboy");
+const busboy = require("busboy");
 const Joi = require('joi');
 const mkdirp = require('make-dir');
 const winston = require('winston');
@@ -16,7 +16,8 @@ exports.setup = (mstream) => {
   mstream.post("/api/v1/file-explorer", async (req, res) => {
     const schema = Joi.object({
       directory: Joi.string().allow("").required(),
-      sort: Joi.boolean().default(true)
+      sort: Joi.boolean().default(true),
+      pullMetadata: Joi.boolean().default(false)
     });
     const { value } = joiValidate(schema, req.body);
 
@@ -48,7 +49,7 @@ exports.setup = (mstream) => {
     }
 
     // get directory contents
-    const folderContents = await fileExplorer.getDirectoryContents(pathInfo.fullPath, config.program.supportedAudioFiles, value.sort);
+    const folderContents = await fileExplorer.getDirectoryContents(pathInfo.fullPath, config.program.supportedAudioFiles, value.sort, value.pullMetadata, value.directory, req.user);
 
     // Format directory string for return value
     let returnDirectory = path.join(pathInfo.vpath, pathInfo.relativePath);
@@ -106,15 +107,16 @@ exports.setup = (mstream) => {
     const pathInfo = vpath.getVPathInfo(decodeURI(req.headers['data-location']), req.user);
     mkdirp.sync(pathInfo.fullPath);
 
-    const busboy = new Busboy({ headers: req.headers });
-    busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+    const bb = busboy({ headers: req.headers });
+    bb.on('file', (fieldname, file, info) => {
+      const { filename } = info;
       const saveTo = path.join(pathInfo.fullPath, filename);
       winston.info(`Uploading from ${req.user.username} to: ${saveTo}`);
       file.pipe(fsOld.createWriteStream(saveTo));
     });
 
-    busboy.on('finish', () => { res.json({}); });
-    req.pipe(busboy);
+    bb.on('close', () => { res.json({}); });
+    req.pipe(bb);
   });
 
   mstream.post("/api/v1/file-explorer/m3u", async (req, res) => {

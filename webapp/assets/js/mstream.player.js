@@ -40,9 +40,11 @@ const MSTREAMPLAYER = (() => {
 
   // Scrobble function
   // This is a placeholder function that the API layer can take hold of to implement the scrobble call
-  var scrobbleTimer;
-  mstreamModule.scrobble = function () {
-    return false;
+  let scrobbleTimer;
+  mstreamModule.scrobble = () => {
+    MSTREAMAPI.scrobbleByFilePath(
+      mstreamModule.getCurrentSong().rawFilePath, 
+      (response, error) => {});
   }
 
   // The audioData looks like this
@@ -71,7 +73,9 @@ const MSTREAMPLAYER = (() => {
       const params = {
         ignoreList: autoDjIgnoreArray,
         minRating: mstreamModule.minRating,
-        ignoreVPaths: mstreamModule.ignoreVPaths
+        ignoreVPaths: Object.keys(mstreamModule.ignoreVPaths).filter((vpath) => {
+          return mstreamModule.ignoreVPaths[vpath] === true;
+        })
       };
   
       const res = await MSTREAMAPI.getRandomSong(params);
@@ -158,10 +162,10 @@ const MSTREAMPLAYER = (() => {
     // Stop the current song
     return goToNextSong();
   }
+
   mstreamModule.previousSong = function () {
     return goToPreviousSong();
   }
-
 
   mstreamModule.goToSongAtPosition = function (position) {
     if (!mstreamModule.playlist[position]) {
@@ -471,7 +475,7 @@ const MSTREAMPLAYER = (() => {
 
     // Scrobble song after 30 seconds
     clearTimeout(scrobbleTimer);
-    scrobbleTimer = setTimeout(function () { mstreamModule.scrobble() }, 30000);
+    scrobbleTimer = setTimeout(() => { mstreamModule.scrobble() }, 30000);
   }
 
   // Should be called whenever the "metadata" field of the current song is changed, or
@@ -485,7 +489,8 @@ const MSTREAMPLAYER = (() => {
     mstreamModule.playerStats.metadata.year = curSong.metadata && curSong.metadata.year ? curSong.metadata.year : "";
     mstreamModule.playerStats.metadata['album-art'] = curSong.metadata && curSong.metadata['album-art'] ? curSong.metadata['album-art'] : "";
     mstreamModule.playerStats.metadata['replaygain-track-db'] = curSong.metadata && curSong.metadata['replaygain-track-db'] ? curSong.metadata['replaygain-track-db'] : "";
-    
+    mstreamModule.playerStats.metadata.filepath = curSong.rawFilePath;
+
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: mstreamModule.playerStats.metadata.title,
@@ -494,6 +499,11 @@ const MSTREAMPLAYER = (() => {
         artwork: [] //TODO: Get album art working here
       });
     }
+    
+    let pageTitle = (mstreamModule.playerStats.metadata.title) ? 
+    mstreamModule.playerStats.metadata.title + ' - ' + mstreamModule.playerStats.metadata.artist : // if metadata exists
+        (mstreamModule.playerStats.metadata.filepath ? mstreamModule.playerStats.metadata.filepath.split('/').pop() : 'mStream Music');
+    document.title = pageTitle; // set page title when song is playing
     
     mstreamModule.updateReplayGainFromSong(curSong);
   }
@@ -564,8 +574,15 @@ const MSTREAMPLAYER = (() => {
     if (localPlayer.playerObject.paused === false) {
       mstreamModule.playerStats.playing = false;
       localPlayer.playerObject.pause();
+      document.title = "mStream Music"
     } else {
       localPlayer.playerObject.play();
+      
+      let pageTitle = (mstreamModule.playerStats.metadata.title) ? 
+        mstreamModule.playerStats.metadata.title + ' - ' + mstreamModule.playerStats.metadata.artist : // if metadata exists
+        (mstreamModule.playerStats.metadata.filepath ? mstreamModule.playerStats.metadata.filepath.split('/').pop() : 'mStream Music');
+      document.title = pageTitle; // set page title when song is playing
+      
       mstreamModule.playerStats.playing = true;
     }
   }
@@ -607,6 +624,7 @@ const MSTREAMPLAYER = (() => {
     currentTime: 0,
     playing: false,
     shouldLoop: false,
+    shouldLoopOne: false,
     shuffle: false,
     volume: 100,
     metadata: {
@@ -680,7 +698,7 @@ const MSTREAMPLAYER = (() => {
         url += `&algo=${mstreamModule.transcodeOptions.selectedAlgo}`;
       }
     }
-    console.log(url)
+
     player.playerObject.src = url;
     player.songObject = song;
     player.playerObject.load();
@@ -697,6 +715,9 @@ const MSTREAMPLAYER = (() => {
 
   function callMeOnStreamEnd() {
     mstreamModule.playerStats.playing = false;
+    if (mstreamModule.playerStats.shouldLoopOne === true) {
+      return goToSong(mstreamModule.positionCache.val);
+    }
     // Go to next song
     goToNextSong();
   }
@@ -746,18 +767,6 @@ const MSTREAMPLAYER = (() => {
     lPlayer.playerObject.currentTime = seektime;
   }
 
-  // var timers = {};
-  // startTime(100);
-  // function startTime(interval) {
-  //   if (timers.sliderUpdateInterval) { clearInterval(timers.sliderUpdateInterval); }
-
-  //   timers.sliderUpdateInterval = setInterval(() => {
-  //     const lPlayer = getCurrentPlayer();
-  //     mstreamModule.playerStats.currentTime = lPlayer.playerObject.currentTime;
-  //     mstreamModule.playerStats.duration = lPlayer.playerObject.duration;
-  //   }, interval);
-  // }
-
   // Timer for caching.  Helps prevent excess caching due to button mashing
   var cacheTimer;
   function setCachedSong(position) {
@@ -777,15 +786,19 @@ const MSTREAMPLAYER = (() => {
 
 
   // Loop
-  mstreamModule.setRepeat = (newValue) => {
-    if (typeof (newValue) !== "boolean") { return; }
-    if (mstreamModule.playerStats.autoDJ === true) { return; }
-    mstreamModule.playerStats.shouldLoop = newValue;
-  }
   mstreamModule.toggleRepeat = () => {
     if (mstreamModule.playerStats.autoDJ === true) { return; }
-    mstreamModule.playerStats.shouldLoop = !mstreamModule.playerStats.shouldLoop;
-    return mstreamModule.playerStats.shouldLoop;
+
+    if (mstreamModule.playerStats.shouldLoopOne === true) {
+      mstreamModule.playerStats.shouldLoop = false;
+      mstreamModule.playerStats.shouldLoopOne = false;
+    } else if (mstreamModule.playerStats.shouldLoop === true) {
+      mstreamModule.playerStats.shouldLoop = false;
+      mstreamModule.playerStats.shouldLoopOne = true;
+    } else {
+      mstreamModule.playerStats.shouldLoop = true;
+      mstreamModule.playerStats.shouldLoopOne = false;
+    }
   }
 
   // Random Song
@@ -848,6 +861,7 @@ const MSTREAMPLAYER = (() => {
       // Turn off shuffle & loop
       mstreamModule.playerStats.shuffle = false;
       mstreamModule.playerStats.shouldLoop = false;
+      mstreamModule.playerStats.shouldLoopOne = false;
 
       // Add song if necessary
       if (mstreamModule.playlist.length === 0 || mstreamModule.positionCache.val === mstreamModule.playlist.length - 1) {
